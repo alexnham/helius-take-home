@@ -233,7 +233,6 @@ fn decode_block(slot: u64, body: &[u8]) -> Result<(u64, i64, Vec<Transfer>), Box
         .filter(|raw| MINTS.iter().any(|mint| raw.get().contains(mint)))
         // A transaction we can't read fails the whole range (retried, then marked failed), never a silent skip.
         .map(|raw| -> Result<_, BoxError> { Ok(from_rpc(&serde_json::from_str::<Value>(raw.get())?)?) })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("slot {slot}: {e}"))?;
+        .collect::<Result<Vec<_>, _>>()?; // the caller adds the slot to the error
     Ok((slot, block_time, txs.iter().flat_map(decode_transfers).collect()))
 }

@@ -105,7 +105,7 @@ async function main() {
   const fromSlot = await resumeSlot();
   const request: SubscribeRequest = {
     commitment: CommitmentLevel.FINALIZED, // only finalized slots are guaranteed to be on canonical chain
-    fromSlot: Number(fromSlot),             // our checkpoint, see "Handling failure"
+    fromSlot: Number(fromSlot),             // our checkpoint, see resumeSlot
     transactions: {
       transfers: {
         accountInclude: MINTS,
