@@ -1,0 +1,35 @@
+{
+  "name": "helius-take-home-indexer",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "tsx --test samples/*.test.ts",
+    "typecheck": "tsc",
+    "stream": "tsx --env-file=.env samples/stream.ts",
+    "db": "docker run -d --name helius-pg -p 127.0.0.1:55433:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=indexer -v \"$PWD/samples/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro\" postgres:17"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexnham/helius-take-home.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/alexnham/helius-take-home/issues"
+  },
+  "homepage": "https://github.com/alexnham/helius-take-home#readme",
+  "dependencies": {
+    "bs58": "^6.0.0",
+    "helius-laserstream": "^2.0.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.11",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

@@ -42,7 +42,8 @@ function onData(update: SubscribeUpdate) {
   pending.set(slot, entry);
   if (slot > maxSeen) maxSeen = slot;
 
-  if (update.transaction) entry.transfers.push(...decodeTransfers(update.transaction));
+  // matchMints delivers whole transactions, so a USDC→SOL swap also carries other mints' transfers; keep ours.
+  if (update.transaction) entry.transfers.push(...decodeTransfers(update.transaction).filter((t) => MINTS.includes(t.mint)));
   if (update.blockMeta) entry.blockTime = Number(update.blockMeta.blockTime?.timestamp);
   writes = writes.then(flushReady);
 }
@@ -59,7 +60,7 @@ async function flushReady() {
 async function main() {
   const fromSlot = await resumeSlot();
   const request: SubscribeRequest = {
-    commitment: CommitmentLevel.FINALIZED,
+    commitment: CommitmentLevel.FINALIZED, // only finalized slots are guaranteed to be on canonical chain
     ...(fromSlot !== undefined && { fromSlot: Number(fromSlot) }),
     transactions: {
       transfers: {
