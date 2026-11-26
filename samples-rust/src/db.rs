@@ -10,23 +10,40 @@ pub async fn connect() -> Result<Client, Box<dyn std::error::Error>> {
 }
 
 /// Shared by live and backfill: the same transfer gets the same key on every path.
-/// One statement per slot: columns go in as arrays and unnest back into rows.
 pub async fn insert_transfers(tx: &Transaction<'_>, slot: u64, block_time: i64, transfers: &[Transfer]) -> Result<(), Error> {
-    if transfers.is_empty() {
+    let rows: Vec<_> = transfers.iter().map(|t| (slot, block_time, t)).collect();
+    insert_rows(tx, &rows).await
+}
+
+/// Many slots at once, for backfill: one statement per 10k rows instead of one per slot.
+pub async fn insert_batch(tx: &Transaction<'_>, slots: &[(u64, i64, Vec<Transfer>)]) -> Result<(), Error> {
+    let rows: Vec<_> = slots.iter().flat_map(|(slot, time, ts)| ts.iter().map(move |t| (*slot, *time, t))).collect();
+    for chunk in rows.chunks(10_000) {
+        insert_rows(tx, chunk).await?;
+    }
+    Ok(())
+}
+
+// Columns go in as arrays and unnest back into rows.
+async fn insert_rows(tx: &Transaction<'_>, rows: &[(u64, i64, &Transfer)]) -> Result<(), Error> {
+    if rows.is_empty() {
         return Ok(());
     }
-    let col = |f: fn(&Transfer) -> String| transfers.iter().map(f).collect::<Vec<_>>();
-    let ints = |f: fn(&Transfer) -> i32| transfers.iter().map(f).collect::<Vec<_>>();
-    let opt = |f: fn(&Transfer) -> Option<String>| transfers.iter().map(f).collect::<Vec<_>>();
+    let col = |f: fn(&Transfer) -> String| rows.iter().map(|r| f(r.2)).collect::<Vec<_>>();
+    let ints = |f: fn(&Transfer) -> i32| rows.iter().map(|r| f(r.2)).collect::<Vec<_>>();
+    let opt = |f: fn(&Transfer) -> Option<String>| rows.iter().map(|r| f(r.2)).collect::<Vec<_>>();
+    let slots: Vec<i64> = rows.iter().map(|r| r.0 as i64).collect();
+    let times: Vec<f64> = rows.iter().map(|r| r.1 as f64).collect();
     tx.execute(
         "INSERT INTO transfers (signature, ix_index, inner_ix_index, slot, block_time, mint, source, destination,
                                 source_owner, destination_owner, amount)
-         SELECT s, i, ii, $4, to_timestamp($5), m, src, dst, so, dow, a::numeric
-         FROM unnest($1::text[], $2::int[], $3::int[], $6::text[], $7::text[], $8::text[], $9::text[], $10::text[], $11::text[])
-              AS t(s, i, ii, m, src, dst, so, dow, a)
+         SELECT s, i, ii, sl, to_timestamp(bt), m, src, dst, so, dow, a::numeric
+         FROM unnest($1::text[], $2::int[], $3::int[], $4::bigint[], $5::float8[], $6::text[], $7::text[], $8::text[],
+                     $9::text[], $10::text[], $11::text[])
+              AS t(s, i, ii, sl, bt, m, src, dst, so, dow, a)
          ON CONFLICT DO NOTHING", // replays and live/backfill overlap re-deliver slots; the primary key makes that harmless
-        &[&col(|t| t.signature.clone()), &ints(|t| t.ix_index), &ints(|t| t.inner_ix_index), &(slot as i64),
-          &(block_time as f64), &col(|t| t.mint.clone()), &col(|t| t.source.clone()), &col(|t| t.destination.clone()),
+        &[&col(|t| t.signature.clone()), &ints(|t| t.ix_index), &ints(|t| t.inner_ix_index), &slots, &times,
+          &col(|t| t.mint.clone()), &col(|t| t.source.clone()), &col(|t| t.destination.clone()),
           &opt(|t| t.source_owner.clone()), &opt(|t| t.destination_owner.clone()), &col(|t| t.amount.to_string())],
     )
     .await

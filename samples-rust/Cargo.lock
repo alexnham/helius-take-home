@@ -4505,6 +4505,7 @@ dependencies = [
  "jetstreamer-firehose",
  "reqwest 0.13.5",
  "rustls",
+ "serde",
  "serde_json",
  "solana-message",
  "solana-transaction",
