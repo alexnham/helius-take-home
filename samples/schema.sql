@@ -10,9 +10,45 @@ CREATE TABLE IF NOT EXISTS transfers (
   source_owner      TEXT,                    -- wallets, when token balance metadata has them
   destination_owner TEXT,
   amount            NUMERIC(20, 0) NOT NULL, -- raw u64 base units; exceeds JS number range
-  PRIMARY KEY (signature, ix_index, inner_ix_index)
-);
-CREATE INDEX IF NOT EXISTS transfers_mint_time ON transfers (mint, block_time);
+  -- Partitioned tables need the partition column in the key. Safe: block_time is fixed by the slot,
+  -- so a transfer gets the same key on every ingestion path.
+  PRIMARY KEY (signature, ix_index, inner_ix_index, block_time)
+) PARTITION BY RANGE (block_time);
+
+-- Catches rows for days without a partition instead of failing the insert; should stay empty.
+CREATE TABLE IF NOT EXISTS transfers_default PARTITION OF transfers DEFAULT;
+
+-- One partition per UTC day. Run daily to stay ahead of the stream.
+-- shortcut: hand-rolled partition upkeep; use pg_partman or TimescaleDB in production.
+CREATE OR REPLACE FUNCTION ensure_transfer_partitions(first_day DATE, last_day DATE) RETURNS void AS $$
+DECLARE d DATE;
+BEGIN
+  FOR d IN SELECT generate_series(first_day, last_day, interval '1 day')::date LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS %I PARTITION OF transfers FOR VALUES FROM (%L) TO (%L)',
+      'transfers_' || to_char(d, 'YYYYMMDD'), d::timestamp AT TIME ZONE 'UTC', (d + 1)::timestamp AT TIME ZONE 'UTC');
+  END LOOP;
+END $$ LANGUAGE plpgsql;
+
+-- Retention: dropping a day is instant, unlike DELETE. Queries still filter block_time >= now() - 30 days,
+-- so the window is exact even if this runs late.
+CREATE OR REPLACE FUNCTION drop_expired_transfer_partitions(keep_days INT DEFAULT 30) RETURNS void AS $$
+DECLARE p TEXT;
+BEGIN
+  FOR p IN SELECT c.relname FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid
+           WHERE i.inhparent = 'transfers'::regclass AND c.relname ~ '^transfers_\d{8}$'
+             AND to_date(substr(c.relname, 11), 'YYYYMMDD') < (now() AT TIME ZONE 'UTC')::date - keep_days LOOP
+    EXECUTE format('DROP TABLE %I', p);
+  END LOOP;
+END $$ LANGUAGE plpgsql;
+
+SELECT ensure_transfer_partitions((now() AT TIME ZONE 'UTC')::date - 31, (now() AT TIME ZONE 'UTC')::date + 7);
+
+-- Indexes follow assumed query patterns; each one slows inserts, so keep only those real queries use.
+-- Created on the parent, they apply to every partition. During backfill, load a partition first and index it after.
+CREATE INDEX IF NOT EXISTS transfers_mint_time ON transfers (mint, block_time);                    -- token activity over a time range
+CREATE INDEX IF NOT EXISTS transfers_source_owner_time ON transfers (source_owner, block_time);    -- wallet history: sent
+CREATE INDEX IF NOT EXISTS transfers_dest_owner_time ON transfers (destination_owner, block_time);  -- wallet history: received
 
 CREATE TABLE IF NOT EXISTS stream_checkpoint (
   id         TEXT PRIMARY KEY,

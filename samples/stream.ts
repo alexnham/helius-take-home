@@ -13,11 +13,13 @@ const config = { apiKey: process.env.HELIUS_API_KEY!, endpoint: process.env.LASE
 const db = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // Resume from our own checkpoint: the SDK's reconnect position lives in memory and dies with the process.
-async function resumeSlot(): Promise<bigint | undefined> {
+async function resumeSlot(): Promise<bigint> {
+  const laserstream = new LaserstreamClient(config);
   const { rows } = await db.query("SELECT slot FROM stream_checkpoint WHERE id = $1", [STREAM_ID]);
-  if (!rows[0]) return undefined; // first run: start at the tip, backfill covers the rest of the window
+  // First run: start at the tip; backfill covers the rest of the window.
+  if (!rows[0]) return BigInt((await laserstream.getSlot(CommitmentLevel.FINALIZED)).slot);
 
-  const { firstAvailable } = await new LaserstreamClient(config).subscribeReplayInfo();
+  const { firstAvailable } = await laserstream.subscribeReplayInfo();
   const oldest = BigInt(firstAvailable ?? 0);
   const from = BigInt(rows[0].slot) - REPLAY_MARGIN;
   if (from >= oldest) return from;
@@ -58,10 +60,9 @@ async function flushReady() {
 }
 
 async function main() {
-  const fromSlot = await resumeSlot();
   const request: SubscribeRequest = {
     commitment: CommitmentLevel.FINALIZED, // only finalized slots are guaranteed to be on canonical chain
-    ...(fromSlot !== undefined && { fromSlot: Number(fromSlot) }),
+    fromSlot: Number(await resumeSlot()),   // our checkpoint, see "Handling failure"
     transactions: {
       transfers: {
         accountInclude: MINTS,

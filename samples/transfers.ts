@@ -1,6 +1,6 @@
 import bs58 from "bs58";
 import type { SubscribeUpdateTransaction } from "helius-laserstream";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 const TOKEN_PROGRAMS = new Set([
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", // SPL Token
@@ -103,22 +103,27 @@ function parseTransfer(ix: Instruction, keys: string[]) {
   return null;
 }
 
+// Shared by live and backfill: the same transfer gets the same key on both paths.
+export async function insertTransfers(client: PoolClient, slot: bigint, blockTime: number, transfers: Transfer[]) {
+  for (const t of transfers) {
+    await client.query(
+      `INSERT INTO transfers (signature, ix_index, inner_ix_index, slot, block_time, mint, source, destination,
+                              source_owner, destination_owner, amount)
+       VALUES ($1, $2, $3, $4, to_timestamp($5), $6, $7, $8, $9, $10, $11)
+       ON CONFLICT DO NOTHING`, // replays and live/backfill overlap re-deliver slots; the primary key makes that harmless
+      [t.signature, t.ixIndex, t.innerIxIndex, slot.toString(), blockTime, t.mint, t.source, t.destination,
+       t.sourceOwner, t.destinationOwner, t.amount.toString()],
+    );
+  }
+}
+
 // Write a slot's transfers and advance the checkpoint in one transaction:
 // a crash can never record progress for rows that weren't stored.
 export async function commitSlot(db: Pool, streamId: string, slot: bigint, blockTime: number, transfers: Transfer[]) {
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    for (const t of transfers) {
-      await client.query(
-        `INSERT INTO transfers (signature, ix_index, inner_ix_index, slot, block_time, mint, source, destination,
-                                source_owner, destination_owner, amount)
-         VALUES ($1, $2, $3, $4, to_timestamp($5), $6, $7, $8, $9, $10, $11)
-         ON CONFLICT DO NOTHING`, // replay re-delivers slots; the primary key makes that harmless
-        [t.signature, t.ixIndex, t.innerIxIndex, slot.toString(), blockTime, t.mint, t.source, t.destination,
-         t.sourceOwner, t.destinationOwner, t.amount.toString()],
-      );
-    }
+    await insertTransfers(client, slot, blockTime, transfers);
     await client.query(
       `INSERT INTO stream_checkpoint (id, slot) VALUES ($1, $2)
        ON CONFLICT (id) DO UPDATE SET slot = GREATEST(stream_checkpoint.slot, EXCLUDED.slot), updated_at = now()`,
