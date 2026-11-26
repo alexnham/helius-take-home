@@ -7,7 +7,7 @@
     "test": "tsx --test *.test.ts",
     "typecheck": "tsc",
     "stream": "tsx --env-file=../.env stream.ts",
-    "db": "docker run -d --name helius-pg -p 127.0.0.1:55433:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=indexer -v \"$PWD/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro\" postgres:17",
+    "db": "docker run -d --name helius-pg -p 127.0.0.1:55433:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=indexer -v \"$PWD/../common/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro\" postgres:17",
     "backfill": "tsx --env-file=../.env backfill.ts"
   },
   "repository": {

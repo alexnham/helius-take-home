@@ -15,7 +15,7 @@ const MAX_RPS = Number(process.env.BACKFILL_MAX_RPS ?? 200); // Helius Business 
 const MAX_ATTEMPTS = 5;
 const db = new Pool({ connectionString: process.env.DATABASE_URL, max: WORKERS });
 
-const CLAIM_RANGE = readFileSync(join(__dirname, "claim_range.sql"), "utf8");
+const CLAIM_RANGE = readFileSync(join(__dirname, "../common/claim_range.sql"), "utf8");
 
 // A worker that died mid-range stops touching updated_at; hand its range back.
 const RECLAIM_STALE = `

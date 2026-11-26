@@ -1,7 +1,7 @@
 use crate::decode::Transfer;
 use tokio_postgres::{Client, Error, NoTls, Transaction};
 
-pub const CLAIM_RANGE: &str = include_str!("../claim_range.sql");
+pub const CLAIM_RANGE: &str = include_str!("../../common/claim_range.sql");
 
 pub async fn connect() -> Result<Client, Box<dyn std::error::Error>> {
     let (client, connection) = tokio_postgres::connect(&std::env::var("DATABASE_URL")?, NoTls).await?;
