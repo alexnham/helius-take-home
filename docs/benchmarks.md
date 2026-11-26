@@ -45,7 +45,7 @@ Limit: CPU. Node spends nearly all its time in `JSON.parse` on ~2–4 MB blocks,
 | Network | Not published by the provider; peak observed ~1.6 Gbit/s (an uncompressed RPC run averaged 202 MB/s) |
 | OS | Ubuntu 24.04.5 LTS, kernel 6.8.0-149-generic |
 | Toolchain | rustc 1.100.0 (release build), Node.js 24.22.3 |
-| Database | PostgreSQL 17.12 in Docker on the same machine; `shared_buffers=4GB`, `max_connections=300`, `max_wal_size=16GB`; schema from `common/schema.sql` (daily partitions, primary key plus three indexes) |
+| Database | PostgreSQL 17.12 in Docker on the same machine; `shared_buffers=4GB`, `max_connections=300`, `max_wal_size=16GB`; daily partitions, primary key plus three indexes (now split between `common/schema.sql` and `common/indexes.sql`; all were present during these runs) |
 
 ## Caveats
 

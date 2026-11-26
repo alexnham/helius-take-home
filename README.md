@@ -3,7 +3,7 @@
 Live LaserStream ingestion plus RPC and Old Faithful backfill into PostgreSQL. All paths share one decoder and one idempotent insert.
 
 ```
-common/        schema.sql, claim_range.sql, plan_ranges.sh
+common/        schema.sql, indexes.sql, claim_range.sql, plan_ranges.sh
 samples-ts/    stream.ts, backfill.ts (RPC), transfers.ts (decoder)
 samples-rust/  stream, backfill_rpc, backfill_archive (Jetstreamer)
 docs/          benchmarks.md, research/backfill-methods.md
@@ -31,6 +31,17 @@ cargo run --release --bin stream
 cargo run --release --bin backfill_rpc -- work
 cargo run --release --bin backfill_archive
 ```
+
+After the initial backfill, pause ingestion writers and build the query indexes
+(from the repository root):
+
+```sh
+docker exec -i helius-pg psql -U postgres -d indexer -v ON_ERROR_STOP=1 < common/indexes.sql
+```
+
+Resume writers afterwards. Index creation blocks writes while it runs. The primary
+key remains in `schema.sql`, so ingestion is deduplicated before these indexes exist.
+Existing databases keep their indexes; this split does not drop them.
 
 ## Test
 

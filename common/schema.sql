@@ -44,12 +44,6 @@ END $$ LANGUAGE plpgsql;
 
 SELECT ensure_transfer_partitions((now() AT TIME ZONE 'UTC')::date - 31, (now() AT TIME ZONE 'UTC')::date + 7);
 
--- Indexes follow assumed query patterns; each one slows inserts, so keep only those real queries use.
--- Created on the parent, they apply to every partition. During backfill, load a partition first and index it after.
-CREATE INDEX IF NOT EXISTS transfers_mint_time ON transfers (mint, block_time);                    -- token activity over a time range
-CREATE INDEX IF NOT EXISTS transfers_source_owner_time ON transfers (source_owner, block_time);    -- wallet history: sent
-CREATE INDEX IF NOT EXISTS transfers_dest_owner_time ON transfers (destination_owner, block_time);  -- wallet history: received
-
 CREATE TABLE IF NOT EXISTS stream_checkpoint (
   id         TEXT PRIMARY KEY,
   slot       BIGINT NOT NULL,                -- last slot fully written

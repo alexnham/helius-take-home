@@ -13,3 +13,8 @@ ssh root@$IP 'docker exec pg createdb -U postgres indexer && docker exec -i pg p
 
 terraform destroy                                                  # ~$0.24/hour while it exists
 ```
+
+Query indexes are separate from the schema. After the initial backfill, pause
+writers and apply `bench/common/indexes.sql` with `psql -v ON_ERROR_STOP=1` in the
+`pg` container, then resume writers. To reproduce the recorded benchmark setup,
+apply the indexes before the benchmark load instead.
