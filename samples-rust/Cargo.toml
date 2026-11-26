@@ -1,0 +1,19 @@
+[package]
+name = "samples-rust"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Vaultic's maintained Jetstreamer (Anza archived theirs); same revision the earlier indexer validated.
+jetstreamer-firehose = { git = "https://github.com/vaultic-win/jetstreamer", rev = "8f91a4a7c918674f8799a9c887ace0f7f39fb844", default-features = false }
+solana-message = { version = "5", features = ["wincode"] }
+solana-transaction = { version = "5", features = ["wincode"] }
+solana-transaction-status = { version = "=4.4.0", features = ["agave-unstable-api"] }
+futures-util = { version = "0", default-features = false, features = ["std"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+tokio-postgres = "0.7"
+helius-laserstream = "2.0.0"
+reqwest = { version = "0.13.5", features = ["json", "gzip"] } # Helius gzips getBlock ~2x; without this, every block arrives uncompressed
+serde_json = "1.0.154"
+bs58 = "0.5.1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }

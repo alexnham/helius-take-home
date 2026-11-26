@@ -1,13 +1,14 @@
 {
-  "name": "helius-take-home-indexer",
+  "name": "samples-ts",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "tsx --test samples/*.test.ts",
+    "test": "tsx --test *.test.ts",
     "typecheck": "tsc",
-    "stream": "tsx --env-file=.env samples/stream.ts",
-    "db": "docker run -d --name helius-pg -p 127.0.0.1:55433:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=indexer -v \"$PWD/samples/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro\" postgres:17"
+    "stream": "tsx --env-file=../.env stream.ts",
+    "db": "docker run -d --name helius-pg -p 127.0.0.1:55433:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=indexer -v \"$PWD/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro\" postgres:17",
+    "backfill": "tsx --env-file=../.env backfill.ts"
   },
   "repository": {
     "type": "git",
