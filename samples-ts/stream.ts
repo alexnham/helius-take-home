@@ -26,9 +26,12 @@ async function resumeSlot(): Promise<bigint> {
   }
 
   const { firstAvailable } = await laserstream.subscribeReplayInfo();
-  const oldest = BigInt(firstAvailable ?? 0);
+  if (firstAvailable == null) {
+    throw new Error("Replay unavailable; keep the checkpoint and retry without advancing it");
+  }
+  const oldest = BigInt(firstAvailable);
   const checkpoint = BigInt(rows[0].slot);
-  const from = checkpoint - REPLAY_MARGIN;
+  const from = checkpoint > REPLAY_MARGIN ? checkpoint - REPLAY_MARGIN : 0n;
   if (from >= oldest) {
     log("info", "stream_resume", { mode: "checkpoint", checkpoint, from_slot: from });
     return from;

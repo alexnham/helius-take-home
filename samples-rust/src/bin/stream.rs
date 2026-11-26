@@ -110,7 +110,8 @@ async fn resume_slot(db: &tokio_postgres::Client, config: &LaserstreamConfig) ->
         return Ok(tip);
     };
 
-    let oldest = laserstream.subscribe_replay_info().await?.first_available.unwrap_or(0);
+    let oldest = laserstream.subscribe_replay_info().await?.first_available
+        .ok_or("Replay unavailable; keep the checkpoint and retry without advancing it")?;
     let checkpoint = row.get::<_, i64>(0) as u64;
     let from = checkpoint.saturating_sub(REPLAY_MARGIN);
     if from >= oldest {
