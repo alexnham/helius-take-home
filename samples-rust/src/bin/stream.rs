@@ -76,8 +76,10 @@ async fn run() -> Result<(), Box<dyn Error>> {
         };
         match update.update_oneof {
             Some(UpdateOneof::Transaction(t)) => {
-                let tx = t.transaction.as_ref().and_then(from_laserstream);
-                pending.entry(t.slot).or_default().transfers.extend(tx.iter().flat_map(decode_transfers));
+                // An unreadable transaction stops the stream before its slot commits; restart resumes from the checkpoint.
+                let info = t.transaction.as_ref().ok_or(format!("slot {}: transaction update without info", t.slot))?;
+                let tx = from_laserstream(info).map_err(|e| format!("slot {}: {e}", t.slot))?;
+                pending.entry(t.slot).or_default().transfers.extend(decode_transfers(&tx));
                 max_seen = max_seen.max(t.slot);
             }
             Some(UpdateOneof::BlockMeta(m)) => {

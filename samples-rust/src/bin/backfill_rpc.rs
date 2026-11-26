@@ -228,12 +228,12 @@ async fn backfill_range(rpc: &Arc<Rpc>, db: &mut tokio_postgres::Client, start: 
 fn decode_block(slot: u64, body: &[u8]) -> Result<(u64, i64, Vec<Transfer>), BoxError> {
     let block = serde_json::from_slice::<Response<Block>>(body)?.into_result("getBlock")?;
     let block_time = block.block_time.ok_or("block without blockTime")?;
-    let transfers = block.transactions.iter()
+    let txs = block.transactions.iter()
         // Same rule as matchMints, as a text search: a transaction touching our mints names them in its token balances.
         .filter(|raw| MINTS.iter().any(|mint| raw.get().contains(mint)))
-        .filter_map(|raw| serde_json::from_str::<Value>(raw.get()).ok())
-        .filter_map(|tx| from_rpc(&tx))
-        .flat_map(|tx| decode_transfers(&tx))
-        .collect();
-    Ok((slot, block_time, transfers))
+        // A transaction we can't read fails the whole range (retried, then marked failed), never a silent skip.
+        .map(|raw| -> Result<_, BoxError> { Ok(from_rpc(&serde_json::from_str::<Value>(raw.get())?)?) })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("slot {slot}: {e}"))?;
+    Ok((slot, block_time, txs.iter().flat_map(decode_transfers).collect()))
 }
