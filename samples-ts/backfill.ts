@@ -173,14 +173,27 @@ type RpcTx = {
 };
 type RpcBlock = { blockTime: number; transactions: RpcTx[] };
 
-function touchesMints(tx: RpcTx) {
-  return [...(tx.meta?.preTokenBalances ?? []), ...(tx.meta?.postTokenBalances ?? [])].some((b) => MINTS.includes(b.mint));
+// Malformed RPC data fails the range (retried, then marked failed), never a silent skip.
+function bad(tx: RpcTx, what: string): never {
+  throw new Error(`${tx.transaction.signatures[0]}: bad ${what}`);
+}
+
+export function touchesMints(tx: RpcTx) {
+  const pre = tx.meta?.preTokenBalances ?? bad(tx, "preTokenBalances");
+  const post = tx.meta?.postTokenBalances ?? bad(tx, "postTokenBalances");
+  return [...pre, ...post].some((b) => MINTS.includes(b.mint));
 }
 
 // shortcut: round-trips base58 so live and backfill share decodeTransfers; request base64 if this gets hot.
-function toUpdate(tx: RpcTx, slot: number): SubscribeUpdateTransaction {
-  const ix = (i: RpcIx) => ({ programIdIndex: i.programIdIndex, accounts: Uint8Array.from(i.accounts), data: bs58.decode(i.data) });
-  const meta = tx.meta!;
+export function toUpdate(tx: RpcTx, slot: number): SubscribeUpdateTransaction {
+  const ix = (i: RpcIx) => {
+    // Uint8Array.from would wrap 300 to 44 and point the transfer at the wrong account.
+    if (!i.accounts.every((a) => Number.isInteger(a) && a >= 0 && a <= 255)) bad(tx, "account index");
+    return { programIdIndex: i.programIdIndex, accounts: Uint8Array.from(i.accounts), data: bs58.decode(i.data) };
+  };
+  const meta = tx.meta ?? bad(tx, "meta");
+  // Missing loadedAddresses is normal for legacy transactions; missing innerInstructions would hide inner transfers.
+  const inner = meta.innerInstructions ?? bad(tx, "innerInstructions");
   return {
     slot: String(slot),
     transaction: {
@@ -192,10 +205,10 @@ function toUpdate(tx: RpcTx, slot: number): SubscribeUpdateTransaction {
         loadedReadonlyAddresses: (meta.loadedAddresses?.readonly ?? []).map((k) => bs58.decode(k)),
         preTokenBalances: meta.preTokenBalances,
         postTokenBalances: meta.postTokenBalances,
-        innerInstructions: (meta.innerInstructions ?? []).map((g) => ({ index: g.index, instructions: g.instructions.map(ix) })),
+        innerInstructions: inner.map((g) => ({ index: g.index, instructions: g.instructions.map(ix) })),
       },
     },
   } as unknown as SubscribeUpdateTransaction;
 }
 
-main();
+if (require.main === module) main(); // importable by tests without starting workers

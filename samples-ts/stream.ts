@@ -70,7 +70,15 @@ function onData(update: SubscribeUpdate) {
   if (slot > maxSeen) maxSeen = slot;
 
   // matchMints delivers whole transactions, so a USDC→SOL swap also carries other mints' transfers; keep ours.
-  if (update.transaction) entry.transfers.push(...decodeTransfers(update.transaction).filter((t) => MINTS.includes(t.mint)));
+  // An unreadable transaction exits before its slot commits (the SDK may swallow callback errors); restart resumes from the checkpoint.
+  // shortcut: fail-fast, no decode_failures quarantine like the Rust stream; port it if this runs in production.
+  if (update.transaction) {
+    try {
+      entry.transfers.push(...decodeTransfers(update.transaction).filter((t) => MINTS.includes(t.mint)));
+    } catch (e) {
+      exit(`slot ${slot}: ${e}`);
+    }
+  }
   if (update.blockMeta) entry.blockTime = Number(update.blockMeta.blockTime?.timestamp);
   writes = writes.then(flushReady);
 }

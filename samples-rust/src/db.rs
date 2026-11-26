@@ -50,11 +50,16 @@ async fn insert_rows(tx: &Transaction<'_>, rows: &[(u64, i64, &Transfer)]) -> Re
     .map(drop)
 }
 
-/// Write a slot's transfers and advance the checkpoint in one transaction:
+/// Write a slot's transfers and decode failures, and advance the checkpoint, in one transaction:
 /// a crash can never record progress for rows that weren't stored.
-pub async fn commit_slot(db: &mut Client, stream_id: &str, slot: u64, block_time: i64, transfers: &[Transfer]) -> Result<(), Error> {
+pub async fn commit_slot(db: &mut Client, stream_id: &str, slot: u64, block_time: i64, transfers: &[Transfer],
+                         failures: &[(String, String)]) -> Result<(), Error> {
     let tx = db.transaction().await?;
     insert_transfers(&tx, slot, block_time, transfers).await?;
+    for (signature, error) in failures {
+        tx.execute("INSERT INTO decode_failures (slot, signature, error) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                   &[&(slot as i64), signature, error]).await?;
+    }
     tx.execute(
         "INSERT INTO stream_checkpoint (id, slot) VALUES ($1, $2)
          ON CONFLICT (id) DO UPDATE SET slot = GREATEST(stream_checkpoint.slot, EXCLUDED.slot), updated_at = now()",

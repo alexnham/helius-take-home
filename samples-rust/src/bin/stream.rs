@@ -13,11 +13,14 @@ use std::{collections::BTreeMap, env, error::Error, time::{Duration, SystemTime,
 const STREAM_ID: &str = "laserstream-main";
 const REPLAY_MARGIN: u64 = 50; // re-read a few slots on restart; idempotent inserts make the overlap free
 const REPORT_EVERY: Duration = Duration::from_secs(10);
+// A rare odd transaction is quarantined; this many in one report interval means a decoder bug, so stop instead.
+const MAX_FAILURES_PER_REPORT: usize = 50;
 
 #[derive(Default)]
 struct Pending {
     block_time: Option<i64>,
     transfers: Vec<Transfer>,
+    failures: Vec<(String, String)>, // (signature, error) for decode_failures
 }
 
 #[tokio::main]
@@ -56,6 +59,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
     let mut max_seen = 0;
     // Progress since the last report; the last committed slot and its block time give ingestion lag.
     let (mut slots, mut transfers, mut last): (u64, usize, Option<(u64, i64)>) = (0, 0, None);
+    let mut failures = 0;
     let mut report = tokio::time::interval(REPORT_EVERY);
     log("info", "stream_connect", json!({ "from_slot": from_slot }));
     let (stream, _handle) = subscribe(config, request); // the SDK reconnects and replays on its own
@@ -68,18 +72,28 @@ async fn run() -> Result<(), Box<dyn Error>> {
                 let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
                 log("info", "stream_progress", json!({
                     "slot": last.map(|l| l.0), "lag_s": last.map(|l| now - l.1),
-                    "slots": slots, "transfers": transfers, "pending": pending.len(),
+                    "slots": slots, "transfers": transfers, "pending": pending.len(), "decode_failures": failures,
                 }));
-                (slots, transfers) = (0, 0);
+                (slots, transfers, failures) = (0, 0, 0);
                 continue;
             }
         };
         match update.update_oneof {
             Some(UpdateOneof::Transaction(t)) => {
-                // An unreadable transaction stops the stream before its slot commits; restart resumes from the checkpoint.
                 let info = t.transaction.as_ref().ok_or(format!("slot {}: transaction update without info", t.slot))?;
-                let tx = from_laserstream(info).map_err(|e| format!("slot {}: {e}", t.slot))?;
-                pending.entry(t.slot).or_default().transfers.extend(decode_transfers(&tx));
+                let entry = pending.entry(t.slot).or_default();
+                match from_laserstream(info) {
+                    Ok(tx) => entry.transfers.extend(decode_transfers(&tx)),
+                    // Quarantine instead of blocking the stream: the row commits with its slot, for alerting and repair.
+                    Err(error) => {
+                        log("warn", "decode_failure", json!({ "slot": t.slot, "error": error }));
+                        entry.failures.push((bs58::encode(&info.signature).into_string(), error));
+                        failures += 1;
+                        if failures > MAX_FAILURES_PER_REPORT {
+                            return Err(format!("{failures} decode failures in {REPORT_EVERY:?}: likely a decoder bug").into());
+                        }
+                    }
+                }
                 max_seen = max_seen.max(t.slot);
             }
             Some(UpdateOneof::BlockMeta(m)) => {
@@ -93,7 +107,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             let slot = *entry.key();
             let Some(block_time) = entry.get().block_time.filter(|_| slot < max_seen) else { break }; // never skip ahead
             let slot_data = entry.remove();
-            db::commit_slot(&mut db, STREAM_ID, slot, block_time, &slot_data.transfers).await // transfers + checkpoint
+            db::commit_slot(&mut db, STREAM_ID, slot, block_time, &slot_data.transfers, &slot_data.failures).await // + checkpoint
                 .map_err(|e| format!("commit slot {slot}: {e}"))?;
             (slots, transfers, last) = (slots + 1, transfers + slot_data.transfers.len(), Some((slot, block_time)));
         }

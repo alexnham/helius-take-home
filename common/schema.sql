@@ -57,3 +57,12 @@ CREATE TABLE IF NOT EXISTS backfill_ranges (
   attempts   INT NOT NULL DEFAULT 0,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Live transactions the decoder couldn't read. Kept for repair (re-fetch by signature, re-decode), never silently skipped.
+CREATE TABLE IF NOT EXISTS decode_failures (
+  slot       BIGINT NOT NULL,
+  signature  TEXT NOT NULL,
+  error      TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (slot, signature)
+);
