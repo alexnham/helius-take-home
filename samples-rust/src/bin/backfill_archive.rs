@@ -4,12 +4,14 @@ use futures_util::FutureExt;
 use jetstreamer_firehose::firehose::{
     BlockData, OnEntryFn, OnErrorFn, OnRewardFn, OnStatsTrackingFn, TransactionData, firehose,
 };
-use samples_rust::{db, decode::{MINTS, Transfer, decode_transfers}, sources::from_archive};
+use samples_rust::{db, decode::{MINTS, Transfer, decode_transfers}, log::log, sources::from_archive};
+use serde_json::json;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     env,
     error::Error,
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
 const MAX_ATTEMPTS: i32 = 5;
@@ -28,13 +30,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     while let Some(row) = db.query_opt(db::CLAIM_RANGE, &[]).await? {
         let (start, end): (i64, i64) = (row.get(0), row.get(1));
+        log("info", "range_claimed", json!({ "start": start, "end": end }));
+        let began = Instant::now();
         let result = match stream_range(start as u64, end as u64, threads).await {
             Ok(collected) => write_range(&mut db, start, collected).await,
             Err(e) => Err(e),
         };
-        if let Err(e) = result {
-            eprintln!("range {start} failed: {e}");
-            db::release_failed_range(&db, start, MAX_ATTEMPTS).await?;
+        match result {
+            Ok((blocks, skipped, transfers)) => log("info", "range_done", json!({
+                "start": start, "end": end, "duration_ms": began.elapsed().as_millis() as u64,
+                "blocks": blocks, "skipped": skipped, "transfers": transfers,
+            })),
+            Err(e) => {
+                log("error", "range_failed", json!({ "start": start, "end": end, "error": e.to_string() }));
+                db::release_failed_range(&db, start, MAX_ATTEMPTS).await?;
+            }
         }
     }
     Ok(())
@@ -85,8 +95,8 @@ async fn stream_range(start: u64, end: u64, threads: u64) -> Result<Collected, B
     Ok(collected)
 }
 
-/// Inserts the range's transfers and marks it done in one transaction.
-async fn write_range(db: &mut tokio_postgres::Client, start: i64, collected: Collected) -> Result<(), Box<dyn Error>> {
+/// Inserts the range's transfers and marks it done in one transaction. Returns (blocks, skipped, transfers).
+async fn write_range(db: &mut tokio_postgres::Client, start: i64, collected: Collected) -> Result<(usize, usize, usize), Box<dyn Error>> {
     let tx = db.transaction().await?;
     for (slot, transfers) in &collected.transfers {
         db::insert_transfers(&tx, *slot, collected.block_times[slot], transfers).await?;
@@ -94,6 +104,5 @@ async fn write_range(db: &mut tokio_postgres::Client, start: i64, collected: Col
     tx.execute("UPDATE backfill_ranges SET status = 'done', updated_at = now() WHERE start_slot = $1", &[&start]).await?;
     tx.commit().await?;
     let count: usize = collected.transfers.values().map(Vec::len).sum();
-    println!("range {start}: {count} transfers, {} skipped slots", collected.skipped.len());
-    Ok(())
+    Ok((collected.block_times.len(), collected.skipped.len(), count))
 }

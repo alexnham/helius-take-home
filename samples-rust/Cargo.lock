@@ -4500,6 +4500,7 @@ name = "samples-rust"
 version = "0.1.0"
 dependencies = [
  "bs58",
+ "chrono",
  "futures-util",
  "helius-laserstream",
  "jetstreamer-firehose",

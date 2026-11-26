@@ -4,6 +4,7 @@ import bs58 from "bs58";
 import type { SubscribeUpdateTransaction } from "helius-laserstream";
 import { Pool } from "pg";
 import { decodeTransfers, insertTransfers } from "./transfers";
+import { log } from "./log";
 
 const MINTS = [
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC
@@ -13,6 +14,7 @@ const RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_AP
 const WORKERS = Number(process.env.BACKFILL_WORKERS ?? 32);
 const MAX_RPS = Number(process.env.BACKFILL_MAX_RPS ?? 200); // Helius Business plan RPC limit
 const MAX_ATTEMPTS = 5;
+const REPORT_EVERY_MS = 10_000;
 const db = new Pool({ connectionString: process.env.DATABASE_URL, max: WORKERS });
 
 const CLAIM_RANGE = readFileSync(join(__dirname, "../common/claim_range.sql"), "utf8");
@@ -21,6 +23,18 @@ const CLAIM_RANGE = readFileSync(join(__dirname, "../common/claim_range.sql"), "
 const RECLAIM_STALE = `
   UPDATE backfill_ranges SET status = 'pending'
   WHERE status = 'running' AND updated_at < now() - interval '10 minutes'`;
+
+// Totals for the periodic progress report.
+const stats = { rangesDone: 0, rangesFailed: 0, rangesRunning: 0, slots: 0, blocks: 0, transfers: 0, rpcRetries: 0, bytes: 0 };
+
+function report(slotsBefore: number, elapsedMs: number) {
+  log("info", "backfill_progress", {
+    ranges_done: stats.rangesDone, ranges_failed: stats.rangesFailed, ranges_running: stats.rangesRunning,
+    slots_per_s: Math.round(((stats.slots - slotsBefore) * 1000) / elapsedMs),
+    blocks: stats.blocks, transfers: stats.transfers, rpc_retries: stats.rpcRetries, bytes: stats.bytes,
+  });
+  return stats.slots;
+}
 
 // Space request starts evenly so all workers together stay under the plan's rate limit.
 let nextStart = 0;
@@ -31,6 +45,7 @@ async function throttle() {
   if (wait) await new Promise((r) => setTimeout(r, wait));
 }
 
+// Errors name the method and slot, never RPC_URL: it carries the API key.
 async function rpc<T>(method: string, params: unknown[]): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     await throttle();
@@ -38,18 +53,23 @@ async function rpc<T>(method: string, params: unknown[]): Promise<T> {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    });
+    }).catch((e) => { throw new Error(`${method} ${params[0]}: ${e.cause?.message ?? e.message}`); });
     if ((res.status === 429 || res.status >= 500) && attempt < 6) {
+      stats.rpcRetries++;
+      log("warn", "rpc_retry", { method, slot: params[0], status: res.status, attempt });
       await new Promise((r) => setTimeout(r, 2 ** attempt * 250 * (0.5 + Math.random()))); // backoff with jitter
       continue;
     }
-    const body = await res.json();
-    if (body.error) throw new Error(`${method}: ${body.error.message}`);
+    const text = await res.text();
+    stats.bytes += text.length;
+    const body = JSON.parse(text);
+    if (body.error) throw new Error(`${method} ${params[0]}: ${body.error.message}`);
     return body.result;
   }
 }
 
 async function backfillRange(start: bigint, end: bigint) {
+  let transfersWritten = 0;
   // getBlocks lists only produced slots, so skipped slots are never requested.
   const slots = await rpc<number[]>("getBlocks", [Number(start), Number(end), { commitment: "finalized" }]);
   for (const slot of slots) {
@@ -71,6 +91,9 @@ async function backfillRange(start: bigint, end: bigint) {
       await insertTransfers(client, BigInt(slot), block.blockTime, transfers);
       await client.query("UPDATE backfill_ranges SET updated_at = now() WHERE start_slot = $1", [start.toString()]); // heartbeat
       await client.query("COMMIT");
+      stats.blocks++;
+      stats.transfers += transfers.length;
+      transfersWritten += transfers.length;
     } catch (e) {
       await client.query("ROLLBACK");
       throw e;
@@ -78,6 +101,7 @@ async function backfillRange(start: bigint, end: bigint) {
       client.release();
     }
   }
+  return { blocks: slots.length, transfers: transfersWritten };
 }
 
 async function worker() {
@@ -85,17 +109,27 @@ async function worker() {
     const { rows } = await db.query(CLAIM_RANGE);
     if (!rows[0]) return;
     const start = BigInt(rows[0].start_slot);
+    const end = BigInt(rows[0].end_slot);
+    log("info", "range_claimed", { start, end });
+    const began = Date.now();
+    stats.rangesRunning++;
     try {
-      await backfillRange(start, BigInt(rows[0].end_slot));
+      const { blocks, transfers } = await backfillRange(start, end);
       // Done only after every block is written. A crash before this just redoes the range: inserts are idempotent.
       await db.query("UPDATE backfill_ranges SET status = 'done', updated_at = now() WHERE start_slot = $1", [start.toString()]);
+      stats.rangesDone++;
+      stats.slots += Number(end - start) + 1;
+      log("info", "range_done", { start, end, duration_ms: Date.now() - began, blocks, transfers });
     } catch (e) {
-      console.error(`range ${start} failed:`, e);
+      stats.rangesFailed++;
+      log("error", "range_failed", { start, end, error: String(e) });
       await db.query(
         `UPDATE backfill_ranges SET status = CASE WHEN attempts >= $2 THEN 'failed' ELSE 'pending' END, updated_at = now()
          WHERE start_slot = $1`,
         [start.toString(), MAX_ATTEMPTS],
       );
+    } finally {
+      stats.rangesRunning--;
     }
   }
 }
@@ -114,7 +148,12 @@ async function main() {
   if (command === "plan") await plan(BigInt(from), BigInt(to), BigInt(size));
   else if (command === "work") {
     await db.query(RECLAIM_STALE);
+    const started = Date.now();
+    let slots = 0, last = started;
+    const timer = setInterval(() => { slots = report(slots, Date.now() - last); last = Date.now(); }, REPORT_EVERY_MS);
     await Promise.all(Array.from({ length: WORKERS }, worker));
+    clearInterval(timer);
+    report(0, Date.now() - started); // final totals, with the whole run's average rate
   } else throw new Error("usage: backfill.ts plan <fromSlot> <toSlot> [rangeSize] | backfill.ts work");
   await db.end();
 }

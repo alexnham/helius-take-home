@@ -17,4 +17,5 @@ reqwest = { version = "0.13.5", features = ["json", "gzip"] } # Helius gzips get
 serde_json = { version = "1.0.154", features = ["raw_value"] }
 bs58 = "0.5.1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] } # already in the tree via Solana crates
 serde = { version = "1.0.229", features = ["derive"] }
