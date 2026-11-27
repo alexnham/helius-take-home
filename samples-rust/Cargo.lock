@@ -696,6 +696,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "backfill-archive"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "futures-util",
+ "jetstreamer-firehose",
+ "serde_json",
+ "solana-message",
+ "solana-transaction",
+ "solana-transaction-status",
+ "tokio",
+ "tokio-postgres",
+]
+
+[[package]]
+name = "backfill-rpc"
+version = "0.1.0"
+dependencies = [
+ "bs58",
+ "common",
+ "futures-util",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-postgres",
+]
+
+[[package]]
 name = "base-x"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1134,6 +1163,16 @@ checksum = "4356eba6976435498d05a311ee9fc486da3bc81c200d3f0d7dd9703b41913f92"
 dependencies = [
  "bytes",
  "memchr",
+]
+
+[[package]]
+name = "common"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde_json",
+ "tokio",
+ "tokio-postgres",
 ]
 
 [[package]]
@@ -4496,26 +4535,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "samples-rust"
-version = "0.1.0"
-dependencies = [
- "bs58",
- "chrono",
- "futures-util",
- "helius-laserstream",
- "jetstreamer-firehose",
- "reqwest 0.13.5",
- "rustls",
- "serde",
- "serde_json",
- "solana-message",
- "solana-transaction",
- "solana-transaction-status",
- "tokio",
- "tokio-postgres",
-]
-
-[[package]]
 name = "schannel"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7598,6 +7617,20 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "stream"
+version = "0.1.0"
+dependencies = [
+ "bs58",
+ "common",
+ "futures-util",
+ "helius-laserstream",
+ "rustls",
+ "serde_json",
+ "tokio",
+ "tokio-postgres",
+]
 
 [[package]]
 name = "stringprep"

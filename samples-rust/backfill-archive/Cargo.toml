@@ -1,0 +1,15 @@
+[package]
+name = "backfill-archive"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+common.workspace = true
+jetstreamer-firehose.workspace = true
+solana-message.workspace = true
+solana-transaction.workspace = true
+solana-transaction-status.workspace = true
+futures-util.workspace = true
+tokio.workspace = true
+tokio-postgres.workspace = true
+serde_json.workspace = true

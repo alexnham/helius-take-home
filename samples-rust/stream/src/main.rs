@@ -1,4 +1,5 @@
 //! Live ingestion from LaserStream gRPC, resuming from our own checkpoint.
+mod source;
 use futures_util::StreamExt;
 use helius_laserstream::{
     LaserstreamClient, LaserstreamConfig,
@@ -6,7 +7,8 @@ use helius_laserstream::{
            subscribe_update::UpdateOneof},
     subscribe,
 };
-use samples_rust::{db, decode::{MINTS, Transfer, decode_transfers}, log::log, sources::from_laserstream};
+use common::{db, decode::{MINTS, Transfer, decode_transfers}, log::log};
+use source::from_laserstream;
 use serde_json::json;
 use std::{collections::BTreeMap, env, error::Error, time::{Duration, SystemTime, UNIX_EPOCH}};
 

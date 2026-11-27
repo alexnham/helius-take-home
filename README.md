@@ -2,10 +2,12 @@
 
 Live LaserStream ingestion plus RPC and Old Faithful backfill into PostgreSQL. All paths share one decoder and one idempotent insert.
 
+TS utilizes getBlock() as the backfill as Jetstreamer is Rust only
+
 ```
 common/        schema.sql, indexes.sql, claim_range.sql, plan_ranges.sh
 samples-ts/    stream.ts, backfill.ts (RPC), transfers.ts (decoder)
-samples-rust/  stream, backfill_rpc, backfill_archive (Jetstreamer)
+samples-rust/  common (decoder, db), stream, backfill-rpc, backfill-archive (Jetstreamer): one crate each
 docs/          benchmarks.md, research/backfill-methods.md
 ```
 
@@ -25,11 +27,11 @@ common/plan_ranges.sh             # last 30 days into backfill_ranges (DAYS, RAN
 npm run stream
 npm run backfill -- work
 
-# Rust (from samples-rust/; first build takes a few minutes)
+# Rust (from samples-rust/; first build of stream or backfill-archive takes a few minutes)
 set -a; . ../.env; set +a
-cargo run --release --bin stream
-cargo run --release --bin backfill_rpc -- work
-cargo run --release --bin backfill_archive
+cargo run --release -p stream
+cargo run --release -p backfill-rpc -- work
+cargo run --release -p backfill-archive
 ```
 
 After the initial backfill, pause ingestion writers and build the query indexes

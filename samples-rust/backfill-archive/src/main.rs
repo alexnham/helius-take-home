@@ -1,10 +1,12 @@
 //! Backfill from Old Faithful archives via Jetstreamer. Claims the same backfill_ranges rows as
 //! backfill_rpc, so either path can fill any range.
+mod source;
 use futures_util::FutureExt;
 use jetstreamer_firehose::firehose::{
     BlockData, OnEntryFn, OnErrorFn, OnRewardFn, OnStatsTrackingFn, TransactionData, firehose,
 };
-use samples_rust::{db, decode::{MINTS, Transfer, decode_transfers}, log::log, sources::from_archive};
+use common::{db, decode::{MINTS, Transfer, decode_transfers}, log::log};
+use source::from_archive;
 use serde_json::json;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},

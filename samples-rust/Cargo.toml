@@ -1,9 +1,14 @@
-[package]
-name = "samples-rust"
-version = "0.1.0"
+# One crate per ingestion path, so each builds only what it uses: Jetstreamer is only in backfill-archive,
+# and backfill-rpc skips the Solana crates entirely (~200 crates against ~900 for the archive).
+[workspace]
+members = ["common", "stream", "backfill-rpc", "backfill-archive"]
+resolver = "3"
+
+[workspace.package]
 edition = "2024"
 
-[dependencies]
+[workspace.dependencies]
+common = { path = "common" }
 # Vaultic's maintained Jetstreamer (Anza archived theirs); same revision the earlier indexer validated.
 jetstreamer-firehose = { git = "https://github.com/vaultic-win/jetstreamer", rev = "8f91a4a7c918674f8799a9c887ace0f7f39fb844", default-features = false }
 solana-message = { version = "5", features = ["wincode"] }
@@ -17,5 +22,5 @@ reqwest = { version = "0.13.5", features = ["json", "gzip"] } # Helius gzips get
 serde_json = { version = "1.0.154", features = ["raw_value"] }
 bs58 = "0.5.1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-chrono = { version = "0.4", default-features = false, features = ["clock"] } # already in the tree via Solana crates
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 serde = { version = "1.0.229", features = ["derive"] }

@@ -8,8 +8,8 @@ Measured 2026-11-26. One day of USDC + USDT transfers: slots 473,480,000–473,8
 
 | Method | Rate | 1 day | 30 days | Downloaded | CPU (of 8 vCPU) | Helius credits |
 |---|---|---|---|---|---|---|
-| Old Faithful archive via Jetstreamer (`src/bin/backfill_archive.rs`) | 330 slots/s | 20 min (full day measured) | ~10 h | 404 GB | 89% | 0 |
-| Helius `getBlocks` + `getBlock` (`src/bin/backfill_rpc.rs`) | 193 slots/s | ~35 min (from a 40,000-slot run: 207 s) | ~17 h | 20.6 GB per 40k slots (~0.5 MB/slot gzipped) | 61% | 1 per block (~12M for 30 days) |
+| Old Faithful archive via Jetstreamer (`backfill-archive/`) | 330 slots/s | 20 min (full day measured) | ~10 h | 404 GB | 89% | 0 |
+| Helius `getBlocks` + `getBlock` (`backfill-rpc/`) | 193 slots/s | ~35 min (from a 40,000-slot run: 207 s) | ~17 h | 20.6 GB per 40k slots (~0.5 MB/slot gzipped) | 61% | 1 per block (~12M for 30 days) |
 
 Settings:
 - **Archive:** 4 processes × 8 Jetstreamer threads, reading `files.old-faithful.net` (public mirror, Amsterdam) with Jetstreamer v0.10.0 (Vaultic, rev `8f91a4a`). One transaction per range, multi-row inserts.

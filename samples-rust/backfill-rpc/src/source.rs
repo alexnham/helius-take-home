@@ -1,41 +1,6 @@
-//! Convert each source's transaction type into the decoder's `Tx`.
-use crate::decode::{Instruction, TokenBalance, Tx};
-use helius_laserstream::grpc::SubscribeUpdateTransactionInfo;
-use jetstreamer_firehose::firehose::TransactionData;
+//! Convert RPC getBlock's transaction type into the decoder's `Tx`.
+use common::decode::{Instruction, TokenBalance, Tx};
 use serde_json::Value;
-
-fn b58(bytes: impl AsRef<[u8]>) -> String {
-    bs58::encode(bytes).into_string()
-}
-
-/// LaserStream gRPC: protobuf bytes.
-/// Errors instead of skipping: a dropped transaction would leave a silent hole in the index.
-pub fn from_laserstream(info: &SubscribeUpdateTransactionInfo) -> Result<Tx, String> {
-    let signature = b58(&info.signature);
-    let message = info.transaction.as_ref().and_then(|t| t.message.as_ref()).ok_or(format!("{signature}: no message"))?;
-    let meta = info.meta.as_ref().ok_or(format!("{signature}: no meta"))?;
-    let ix = |program_id_index: u32, accounts: &[u8], data: &[u8]| Instruction {
-        program_id_index: program_id_index as usize,
-        accounts: accounts.to_vec(),
-        data: data.to_vec(),
-    };
-    Ok(Tx {
-        signature,
-        failed: meta.err.is_some(),
-        keys: message.account_keys.iter()
-            .chain(&meta.loaded_writable_addresses)
-            .chain(&meta.loaded_readonly_addresses)
-            .map(b58)
-            .collect(),
-        instructions: message.instructions.iter().map(|i| ix(i.program_id_index, &i.accounts, &i.data)).collect(),
-        inner_instructions: meta.inner_instructions.iter()
-            .map(|g| (g.index as usize, g.instructions.iter().map(|i| ix(i.program_id_index, &i.accounts, &i.data)).collect()))
-            .collect(),
-        token_balances: meta.pre_token_balances.iter().chain(&meta.post_token_balances)
-            .map(|b| TokenBalance { account_index: b.account_index as usize, mint: b.mint.clone(), owner: b.owner.clone() })
-            .collect(),
-    })
-}
 
 /// RPC getBlock with `encoding: "json"`: base58 strings and JSON numbers.
 /// Every malformed field is an error, never a skip: dropping one account index would shift the rest
@@ -91,33 +56,6 @@ pub fn from_rpc(tx: &Value) -> Result<Tx, String> {
             })
             .collect::<Result<_, _>>()?,
     })
-}
-
-/// Old Faithful via Jetstreamer: Agave's native types.
-pub fn from_archive(tx: &TransactionData) -> Tx {
-    let meta = &tx.transaction_status_meta;
-    let message = &tx.transaction.message;
-    let ix = |i: &solana_message::compiled_instruction::CompiledInstruction| Instruction {
-        program_id_index: i.program_id_index as usize,
-        accounts: i.accounts.clone(),
-        data: i.data.clone(),
-    };
-    Tx {
-        signature: tx.signature.to_string(),
-        failed: tx.is_vote || meta.status.is_err(),
-        keys: message.static_account_keys().iter()
-            .chain(&meta.loaded_addresses.writable)
-            .chain(&meta.loaded_addresses.readonly)
-            .map(|k| k.to_string())
-            .collect(),
-        instructions: message.instructions().iter().map(ix).collect(),
-        inner_instructions: meta.inner_instructions.iter().flatten()
-            .map(|g| (g.index as usize, g.instructions.iter().map(|i| ix(&i.instruction)).collect()))
-            .collect(),
-        token_balances: meta.pre_token_balances.iter().flatten().chain(meta.post_token_balances.iter().flatten())
-            .map(|b| TokenBalance { account_index: b.account_index as usize, mint: b.mint.clone(), owner: b.owner.clone() })
-            .collect(),
-    }
 }
 
 #[cfg(test)]
