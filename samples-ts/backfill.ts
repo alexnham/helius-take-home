@@ -81,7 +81,7 @@ async function backfillRange(start: bigint, end: bigint) {
       rewards: false,
     }]);
     const transfers = block.transactions
-      .filter((tx) => touchesMints(tx)) // same rule as matchMints on the live stream
+      .filter((tx) => succeeded(tx) && touchesMints(tx)) // same rules as failed: false and matchMints on the live stream
       .flatMap((tx) => decodeTransfers(toUpdate(tx, slot)))
       .filter((t) => MINTS.includes(t.mint));
 
@@ -176,6 +176,11 @@ type RpcBlock = { blockTime: number; transactions: RpcTx[] };
 // Malformed RPC data fails the range (retried, then marked failed), never a silent skip.
 function bad(tx: RpcTx, what: string): never {
   throw new Error(`${tx.transaction.signatures[0]}: bad ${what}`);
+}
+
+// Failed transactions move no tokens, and RPC omits fields for some (null innerInstructions): skip them unparsed.
+export function succeeded(tx: RpcTx) {
+  return (tx.meta ?? bad(tx, "meta")).err == null;
 }
 
 export function touchesMints(tx: RpcTx) {

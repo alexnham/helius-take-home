@@ -233,8 +233,40 @@ fn decode_block(slot: u64, body: &[u8]) -> Result<(u64, i64, Vec<Transfer>), Box
     let txs = block.transactions.iter()
         // Same rule as matchMints, as a text search: a transaction touching our mints names them in its token balances.
         .filter(|raw| MINTS.iter().any(|mint| raw.get().contains(mint)))
+        .map(|raw| serde_json::from_str::<Value>(raw.get()))
+        // Failed transactions move no tokens, and RPC omits fields for some (null innerInstructions): skip them unparsed.
+        .filter(|tx| tx.as_ref().map_or(true, |tx| tx["meta"]["err"].is_null()))
         // A transaction we can't read fails the whole range (retried, then marked failed), never a silent skip.
-        .map(|raw| -> Result<_, BoxError> { Ok(from_rpc(&serde_json::from_str::<Value>(raw.get())?)?) })
+        .map(|tx| -> Result<_, BoxError> { Ok(from_rpc(&tx?)?) })
         .collect::<Result<Vec<_>, _>>()?; // the caller adds the slot to the error
     Ok((slot, block_time, txs.iter().flat_map(decode_transfers).collect()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn block(meta: Value) -> Vec<u8> {
+        let tx = json!({
+            "transaction": { "signatures": ["sig"], "message": { "accountKeys": ["a"], "instructions": [] } },
+            "meta": meta,
+        });
+        json!({ "result": { "blockTime": 1, "transactions": [tx] }, "note": MINTS[0] }).to_string().into_bytes()
+    }
+
+    #[test]
+    fn skips_failed_transactions_rpc_left_incomplete() {
+        // Seen on mainnet: MaxLoadedAccountsDataSizeExceeded comes back with innerInstructions: null.
+        let meta = json!({ "err": "MaxLoadedAccountsDataSizeExceeded", "innerInstructions": null,
+                           "preTokenBalances": [{ "accountIndex": 0, "mint": MINTS[0] }], "postTokenBalances": [] });
+        assert_eq!(decode_block(5, &block(meta)).unwrap().2, vec![]);
+    }
+
+    #[test]
+    fn still_rejects_successful_transactions_missing_inner_instructions() {
+        let meta = json!({ "err": null, "innerInstructions": null,
+                           "preTokenBalances": [{ "accountIndex": 0, "mint": MINTS[0] }], "postTokenBalances": [] });
+        assert!(decode_block(5, &block(meta)).unwrap_err().to_string().contains("innerInstructions"));
+    }
 }

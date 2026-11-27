@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { toUpdate, touchesMints } from "./backfill";
+import { succeeded, toUpdate, touchesMints } from "./backfill";
 
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const key = "11111111111111111111111111111111";
@@ -22,4 +22,12 @@ test("rejects malformed RPC data instead of corrupting or dropping it", () => {
   delete noInner.meta.innerInstructions;
   assert.throws(() => toUpdate(noInner as never, 7), /innerInstructions/);
   assert.throws(() => touchesMints({ ...rpcTx([1]), meta: null }), /preTokenBalances/);
+});
+
+test("skips failed transactions before strict parsing", () => {
+  // Seen on mainnet: MaxLoadedAccountsDataSizeExceeded comes back with innerInstructions: null.
+  const failed = { ...rpcTx([1, 2, 0]), meta: { ...rpcTx([1]).meta, err: "MaxLoadedAccountsDataSizeExceeded", innerInstructions: undefined } };
+  assert.equal(succeeded(failed), false);
+  assert.ok(succeeded(rpcTx([1, 2, 0])));
+  assert.throws(() => succeeded({ ...rpcTx([1]), meta: null }), /meta/);
 });
